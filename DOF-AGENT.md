@@ -79,13 +79,18 @@ The agent writes its decisions to the server output, one line per event:
 [DOF] rule turn=151 me=... other=... what=coercion_refused
 [DOF] blocked turn=64 me=... other=... what=declare_war
 [DOF] unit_source turn=84 unit=341 utype=Musketeers owner=... victim=...
+[DOF] unit_source_barb turn=90 unit=512 utype=Caravel owner=... victim=...
 [DOF] unit_gone turn=104 unit=341 owner=... victim=...
+[DOF] barb_summary turn=100 marks=3 rules=0
 ```
 
 `war_on_source` marks a war of self-defence, `war_on_source_third` a war of
 solidarity. `unit_source` is the mark itself (always with a real unit id) and
 `unit_gone` closes it in the turn the unit died: wars end by destroying the
-attacking units, not by a timer. The same lines are duplicated to stderr, because the `--log` file is
+attacking units, not by a timer. Marks where either side is a barbarian go to a
+separate ledger tag (`unit_source_barb`), and `rule`/`blocked`/`declare` lines
+involving a barbarian carry `barb=1`: accounting only, the behaviour of the
+agent is exactly the same. The same lines are duplicated to stderr, because the `--log` file is
 not always written in this container layout. Counters of the run: refused
 coercion, peace offers, wars started on an observed attack, suppressed
 war-desire pairs.
