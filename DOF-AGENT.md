@@ -16,11 +16,11 @@ DOF-MODEL-CIV project.
 | rule | classic AI | DOF seat |
 |---|---|---|
 | war without a reason | declares war for profit, for plunder, "no mercy" on the weak | never: war desire is zeroed, the plunder war and the self-targeting are removed, war for an ally and war to stop a spaceship are refused |
-| who may be attacked | anyone who looks weak | only a *source of aggression* — a player observed attacking a city or a unit |
+| who may be attacked | anyone who looks weak | only a *source of aggression* — a unit observed attacking a city or a unit; the mark sits on the unit and dies with it |
 | espionage as an attack | bribes cities, sabotages, steals tech, poisons, delivers a nuclear strike by spy | refused unless the target is a source of aggression; embassies and peaceful presence stay free |
 | response to an attack | ordinary war planning by expected profit | war of response: the offender is attacked without a profit calculation |
-| solidarity | a war next door is somebody else's business | a seat that knows both sides (it has met the attacker and the victim) treats the attacker as a source even when it was not the victim, and joins against it |
-| ending a war | tie when profitable | a ceasefire is offered once the source flag expires ("We have no quarrel left with you") |
+| solidarity | a war next door is somebody else's business | the source is the **unit**, not the nation: a unit observed attacking somebody the seat knows (or the seat itself) is marked, the mark dies with the unit, and marked units are hunted first. The seat joins against the owner of a marked unit even when it was not the victim |
+| ending a war | tie when profitable | a ceasefire is offered once the marked units are gone ("We have no quarrel left with you") |
 
 A stranger is not a target: an unmet player is *unknown*, not hostile. Unknown
 is not zero — the agent does not treat the absence of information as the absence
@@ -30,10 +30,12 @@ of options.
 
 | file | role |
 |---|---|
-| `ai/default/dofpolicy.c`, `.h` | ledger of aggression sources, solidarity view (who attacked somebody this seat knows), rule journal, per-seat policy switch, counters |
+| `ai/default/dofpolicy.c`, `.h` | per-unit ledger of attacks (`unit_id`, owner, victim, turn), liveness of the mark, who started each pair, solidarity view, rule journal, per-seat policy switch, counters |
 | `ai/default/daidiplomacy.c` | war desire, declaration guard, war of response, ceasefire offer |
 | `ai/default/daiactions.c` | refusal of coercion (bribery, sabotage, tech theft, poison, spy nuke) |
 | `ai/default/daiunit.h` | a stranger is not a `POTENTIALLY_HOSTILE_PLAYER` |
+| `ai/default/daiunit.c` | marked source units are hunted first (`dai_rampage_want`) |
+| `server/unithand.c` | the acting unit is named, and an attack inside an ongoing war is written to the ledger (it carries no casus belli) |
 | `ai/default/daisettler.c` | NULL-guard in `find_best_city_placement` (a crash on long headless games) |
 | `ai/classic/classicai.c` | `/aicmd <player> dof on\|off\|status` console command |
 | `server/aiiface.c` | per-turn hook: read the policy, note the incidents |
@@ -76,10 +78,14 @@ The agent writes its decisions to the server output, one line per event:
 [DOF] rule turn=148 me=... other=... what=ceasefire_offer
 [DOF] rule turn=151 me=... other=... what=coercion_refused
 [DOF] blocked turn=64 me=... other=... what=declare_war
+[DOF] unit_source turn=84 unit=341 utype=Musketeers owner=... victim=...
+[DOF] unit_gone turn=104 unit=341 owner=... victim=...
 ```
 
 `war_on_source` marks a war of self-defence, `war_on_source_third` a war of
-solidarity. The same lines are duplicated to stderr, because the `--log` file is
+solidarity. `unit_source` is the mark itself (always with a real unit id) and
+`unit_gone` closes it in the turn the unit died: wars end by destroying the
+attacking units, not by a timer. The same lines are duplicated to stderr, because the `--log` file is
 not always written in this container layout. Counters of the run: refused
 coercion, peace offers, wars started on an observed attack, suppressed
 war-desire pairs.
@@ -128,3 +134,19 @@ journaled as `war_on_source_third`: these are wars for third parties. The
 control arm reproduced the earlier series exactly, so the solidarity change
 does not touch a classic seat. Price of solidarity: about 12% of the science
 (177 → 156 bulbs) at an unchanged score.
+
+Unit-level solidarity (same seeds, same arms), marks placed on units:
+
+| seats | war declarations | score | science, bulbs/turn | seats alive |
+|---|---|---|---|---|
+| DOF seats, mixed game | 96 | 166.1 | 89 | 1.00 |
+| classic seats, same games | 52 | 156.5 | 78 | 0.96 |
+| classic control | 138 | 172.1 | 144 | 1.00 |
+
+510 marks were placed, 440 of them closed by `unit_gone` (the unit was
+destroyed), so wars ended with the units that caused them. Not a single mark
+was recorded without a unit id. Moving the mark from the side to the unit makes
+the seat far more belligerent — 96 declarations instead of 12 — because the
+ledger now sees every fight, not only attacks that carry a casus belli. The
+seat still outgrows the classic seats it shares a game with, but its science
+drops: 89 bulbs against 144 in the control.
