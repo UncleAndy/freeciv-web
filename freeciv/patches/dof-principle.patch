@@ -1,24 +1,67 @@
---- a/meson.build	2026-10-25 06:15:34.964042187 +0100
-+++ b/meson.build	2026-10-25 06:15:34.964811990 +0100
-@@ -990,7 +990,7 @@
+--- a/ai/classic/classicai.c
++++ b/ai/classic/classicai.c
+@@ -37,6 +37,8 @@
+ #include "daitools.h"
+ #include "daiunit.h"
  
- server_inc = [common_inc, include_directories('server', 'server/advisors',
-               'server/scripting', 'server/generator', 'server/savegame',
--              'ai', 'ai/classic')]
-+              'ai', 'ai/classic', 'ai/default')]
++#include "dofpolicy.h"
++
+ #include "classicai.h"
  
- client_inc = [common_inc, include_directories('client', 'client/include',
-               'client/luascript', 'client/agents')]
-@@ -1310,6 +1310,7 @@
-   'ai/default/daitech.c',
-   'ai/default/daitools.c',
-   'ai/default/daiunit.c',
-+  'ai/default/dofpolicy.c',
-   sources: [verhdr],
-   include_directories: [server_inc, include_directories('ai/default')]
-   )
---- a/ai/default/daidiplomacy.c	2026-10-25 06:14:35.670669747 +0100
-+++ b/ai/default/daidiplomacy.c	2026-10-25 06:14:35.671470524 +0100
+ /* This function is only needed as symbol in module. Nevertheless
+@@ -163,6 +165,11 @@
+ **************************************************************************/
+ static void cai_data_phase_begin(struct player *pplayer, bool is_new_phase)
+ {
++  /* DOF: политика перечитывается в начале хода каждого места, поэтому файл
++   * /docker/freeciv/dof_policy.conf можно менять на ходу — следующий ход уже
++   * пойдёт по новой руке, без перезапуска стенда. Внутри reload стоит кэш по
++   * номеру хода, так что stat() делается один раз за ход. */
++  dof_policy_reload();
+   struct ai_type *deftype = classic_ai_get_self();
+ 
+   dai_data_phase_begin(deftype, pplayer, is_new_phase);
+@@ -702,6 +709,8 @@
+   ai->funcs.treaty_evaluate = cai_treaty_evaluate;
+   ai->funcs.treaty_accepted = cai_treaty_accepted;
+   ai->funcs.first_contact = cai_diplomacy_first_contact;
++  /* DOF: per-seat console ("/aicmd <player> dof on|off|status"). */
++  ai->funcs.player_console = dof_player_console;
+   ai->funcs.incident = cai_incident;
+ 
+   ai->funcs.log_fragment_city = cai_city_log;
+--- a/ai/default/daiactions.c
++++ b/ai/default/daiactions.c
+@@ -33,6 +33,8 @@
+ #include "aihand.h"
+ 
+ 
++#include "dofpolicy.h"
++
+ #include "daiactions.h"
+ 
+ 
+@@ -117,6 +119,18 @@
+   fc_assert_ret_val(action_get_actor_kind(paction) == AAK_UNIT, 0);
+   fc_assert_ret_val(action_get_target_kind(paction) == ATK_CITY, 0);
+ 
++  /* DOF (M2): bribery, sabotage, theft of technology or gold, poison, plague
++   * and a spy-delivered nuclear strike are an attack by another name. A DOF
++   * seat performs them only against a collapse source and only in a war of
++   * its own. Embassies and other peaceful presence stay free. */
++  if (dof_enabled(actor_player)
++      && !dof_is_source(actor_player, target_player)
++      && !pplayers_at_war(actor_player, target_player)
++      && !action_has_result(paction, ACTRES_ESTABLISH_EMBASSY)) {
++    dof_journal_rule(actor_player, target_player, "coercion_refused");
++    return 0;
++  }
++
+   utility = 0;
+ 
+   /* If tech theft is impossible when expected. */
+--- a/ai/default/daidiplomacy.c
++++ b/ai/default/daidiplomacy.c
 @@ -70,6 +70,8 @@
  #include "daiplayer.h"
  #include "daiunit.h"
@@ -106,7 +149,7 @@
      turns = game.info.turn;
      turns -= player_diplstate_get(pplayer, aplayer)->first_contact_turn;
      if (WAR(pplayer, aplayer)) {
-@@ -1717,6 +1755,27 @@
+@@ -1717,6 +1755,31 @@
      war_countdown(ait, pplayer, target, 4 + map_size_checked(), war_reason);
    }
  
@@ -123,8 +166,12 @@
 +        continue;
 +      }
 +      if (dof_is_source(pplayer, aplayer)) {
-+        /* No profit calculation and no hatred: the source is answered. */
-+        dof_journal_rule(pplayer, aplayer, "war_on_source");
++        /* No profit calculation and no hatred: the source is answered.
++         * Solidarity: an attack on a third party the seat knows both sides of
++         * is answered the same way, and the journal keeps the two apart. */
++        dof_journal_rule(pplayer, aplayer,
++                         dof_source_is_third_party(pplayer, aplayer)
++                         ? "war_on_source_third" : "war_on_source");
 +        war_countdown(ait, pplayer, aplayer, 2 + map_size_checked(),
 +                      DAI_WR_BEHAVIOUR);
 +      }
@@ -134,7 +181,7 @@
    /*** Declare war - against enemies of allies ***/
  
    players_iterate_alive(aplayer) {
-@@ -1726,6 +1785,9 @@
+@@ -1726,6 +1789,9 @@
          && adip->countdown == -1
          && !adip->is_allied_with_ally
          && !pplayers_at_war(pplayer, aplayer)
@@ -144,7 +191,7 @@
          && (player_diplstate_get(pplayer, aplayer)->type != DS_CEASEFIRE
              || fc_rand(5) < 1)) {
        DIPLO_LOG(ait, LOG_DEBUG, pplayer, aplayer, "plans war to help ally %s",
-@@ -1789,7 +1851,9 @@
+@@ -1789,7 +1855,9 @@
        /* No peace to enemies of our allies... or pointless peace. */
        if (is_barbarian(aplayer)
            || aplayer == pplayer
@@ -155,7 +202,7 @@
            || adip->countdown >= 0
            || !could_meet_with_player(pplayer, aplayer)) {
          continue;
-@@ -1927,6 +1991,20 @@
+@@ -1927,6 +1995,20 @@
        case DS_NO_CONTACT: /* but we do have embassy! weird. */
        case DS_WAR:
          clause.type = CLAUSE_CEASEFIRE;
@@ -176,38 +223,8 @@
          if ((is_human(aplayer) && adip->asked_about_ceasefire > 0)
              || dai_goldequiv_clause(ait, pplayer, aplayer, &clause,
                                      FALSE, DS_CEASEFIRE) < 0) {
---- a/ai/default/daiactions.c	2026-10-25 06:14:35.674630367 +0100
-+++ b/ai/default/daiactions.c	2026-10-25 06:14:35.675373330 +0100
-@@ -33,6 +33,8 @@
- #include "aihand.h"
- 
- 
-+#include "dofpolicy.h"
-+
- #include "daiactions.h"
- 
- 
-@@ -117,6 +119,18 @@
-   fc_assert_ret_val(action_get_actor_kind(paction) == AAK_UNIT, 0);
-   fc_assert_ret_val(action_get_target_kind(paction) == ATK_CITY, 0);
- 
-+  /* DOF (M2): bribery, sabotage, theft of technology or gold, poison, plague
-+   * and a spy-delivered nuclear strike are an attack by another name. A DOF
-+   * seat performs them only against a collapse source and only in a war of
-+   * its own. Embassies and other peaceful presence stay free. */
-+  if (dof_enabled(actor_player)
-+      && !dof_is_source(actor_player, target_player)
-+      && !pplayers_at_war(actor_player, target_player)
-+      && !action_has_result(paction, ACTRES_ESTABLISH_EMBASSY)) {
-+    dof_journal_rule(actor_player, target_player, "coercion_refused");
-+    return 0;
-+  }
-+
-   utility = 0;
- 
-   /* If tech theft is impossible when expected. */
---- a/ai/default/daisettler.c	2026-10-25 06:14:35.678304458 +0100
-+++ b/ai/default/daisettler.c	2026-10-25 06:14:35.678991100 +0100
+--- a/ai/default/daisettler.c
++++ b/ai/default/daisettler.c
 @@ -1144,7 +1144,11 @@
      TIMING_LOG(AIT_SETTLERS, TIMER_START);
      result = find_best_city_placement(ait, punit, TRUE, FALSE);
@@ -234,8 +251,8 @@
  
      if (result && result->result > best_impr) {
        /* Go make a city! */
---- a/ai/default/daiunit.h	2026-10-25 06:14:35.682027579 +0100
-+++ b/ai/default/daiunit.h	2026-10-25 06:14:35.682698639 +0100
+--- a/ai/default/daiunit.h
++++ b/ai/default/daiunit.h
 @@ -19,6 +19,9 @@
  #include "terrain.h"
  #include "unittype.h"
@@ -263,14 +280,19 @@
  #define UNITTYPE_COSTS(ut)						\
    (ut->pop_cost * 3 + ut->happy_cost					\
     + ut->upkeep[O_SHIELD] + ut->upkeep[O_FOOD] + ut->upkeep[O_GOLD])
---- a/ai/default/dofpolicy.c	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/default/dofpolicy.c	1970-01-01 01:00:00.000000000 +0100
-@@ -0,0 +1,575 @@
+--- a/ai/default/dofpolicy.c
++++ b/ai/default/dofpolicy.c
+@@ -0,0 +1,684 @@
 +/***********************************************************************
-+ DOF-Core policy layer for the built-in freeciv AI (contact with strangers); see DOF-AGENT.md
++ DOF-Core policy layer for the built-in freeciv AI (contact with strangers).
 +
-+ Stage M0: knowledge ledger + journal + per-seat policy switch. DOF-Core: https://github.com/UncleAndy/dof-core
-+ Decision behaviour is NOT changed in this stage.
++ Principle: DOF-Core, https://github.com/UncleAndy/dof-core
++ Description of every engine change: DOF-AGENT.md / drafts/DOF_ENGINE_CHANGES.md
++
++ Stages: M0 knowledge ledger + journal + per-seat policy switch; M1 no war
++ without an observed attack; M2 coercion refused; M3 war of response and a
++ peace offer when the source flag expires; M4 solidarity (an attack on a
++ third party the seat knows both sides of is answered the same way).
 +
 + Policy switch is a file, read (and re-read on change) by the running server:
 +     /docker/freeciv/dof_policy.conf     (env DOF_POLICY_FILE overrides)
@@ -339,6 +361,13 @@
 +/* Collapse-source ledger: source_until[attacker][victim] = turn of expiry. */
 +static int dof_source_until[MAX_NUM_PLAYERS][MAX_NUM_PLAYERS];
 +static bool dof_ledger_reset = FALSE;
++
++/* Derived view, rebuilt once per turn: known_source[me][attacker] is TRUE when
++ * "attacker" has a live flag against somebody "me" knows. This is the
++ * solidarity reading: an agent that can tell the aggressor from the defender
++ * treats the aggressor as a collapse source even when it was not the victim. */
++static bool dof_known_source[MAX_NUM_PLAYERS][MAX_NUM_PLAYERS];
++static int dof_known_source_turn = -1;
 +
 +/**********************************************************************//**
 +  A policy file that appeared later than the last read is re-parsed.
@@ -472,6 +501,8 @@
 +  if (game.info.turn < dof_last_turn) {
 +    memset(dof_source_until, 0, sizeof(dof_source_until));
 +    memset(dof_suppressed, 0, sizeof(dof_suppressed));
++    memset(dof_known_source, 0, sizeof(dof_known_source));
++    dof_known_source_turn = -1;
 +    dof_policy.loaded = FALSE;
 +    dof_checked_turn = -1;
 +  }
@@ -585,6 +616,56 @@
 +}
 +
 +/**********************************************************************//**
++  Rebuild the derived view for this turn: who is a collapse source from the
++  point of view of each seat. A seat becomes a source for "me" when it has
++  attacked somebody "me" knows, and "me" is not the only such somebody.
++  Solidarity: the agent that can tell the aggressor from the defender acts
++  against the aggressor even when it was not the victim itself.
++**************************************************************************/
++static void dof_known_source_refresh(void)
++{
++  if (dof_known_source_turn == game.info.turn) {
++    return;
++  }
++  dof_known_source_turn = game.info.turn;
++  memset(dof_known_source, 0, sizeof(dof_known_source));
++
++  players_iterate(attacker) {
++    const int atk = player_index(attacker);
++
++    if (atk < 0 || atk >= MAX_NUM_PLAYERS) {
++      continue;
++    }
++
++    players_iterate(receiver) {
++      const int rcv = player_index(receiver);
++
++      if (rcv < 0 || rcv >= MAX_NUM_PLAYERS || receiver == attacker) {
++        continue;
++      }
++      /* Unknown is not a judgement: without contact the seat cannot tell
++       * the aggressor from the defender, so nothing is concluded. */
++      if (dof_never_met(receiver, attacker)) {
++        continue;
++      }
++
++      players_iterate(victim) {
++        const int vic = player_index(victim);
++
++        if (vic < 0 || vic >= MAX_NUM_PLAYERS || victim == attacker) {
++          continue;
++        }
++        if (dof_source_until[atk][vic] > game.info.turn
++            && !dof_never_met(receiver, victim)) {
++          dof_known_source[rcv][atk] = TRUE;
++          break;
++        }
++      } players_iterate_end;
++    } players_iterate_end;
++  } players_iterate_end;
++}
++
++/**********************************************************************//**
 +  Is "other" a collapse source for "pplayer"?
 +**************************************************************************/
 +bool dof_is_source(const struct player *pplayer,
@@ -603,7 +684,51 @@
 +    return FALSE;
 +  }
 +
-+  return dof_source_until[him][me] > game.info.turn;
++  dof_known_source_refresh();
++
++  return dof_known_source[me][him];
++}
++
++/**********************************************************************//**
++  Is "other" a source for "pplayer" because of an attack on a THIRD party,
++  not on "pplayer" itself? Lets the journal separate a war of solidarity
++  from a war of self-defence.
++**************************************************************************/
++bool dof_source_is_third_party(const struct player *pplayer,
++                               const struct player *other)
++{
++  int me, him;
++
++  if (pplayer == NULL || other == NULL || pplayer == other) {
++    return FALSE;
++  }
++
++  me = player_index(pplayer);
++  him = player_index(other);
++
++  if (me < 0 || him < 0 || me >= MAX_NUM_PLAYERS || him >= MAX_NUM_PLAYERS) {
++    return FALSE;
++  }
++
++  if (dof_source_until[him][me] > game.info.turn) {
++    return FALSE; /* attacked us: that is self-defence, not solidarity */
++  }
++
++  {
++    players_iterate(victim) {
++      const int vic = player_index(victim);
++
++      if (vic < 0 || vic >= MAX_NUM_PLAYERS || victim == other || victim == pplayer) {
++        continue;
++      }
++      if (dof_source_until[him][vic] > game.info.turn
++          && !dof_never_met(pplayer, victim)) {
++        return TRUE;
++      }
++    } players_iterate_end;
++  }
++
++  return FALSE;
 +}
 +
 +/**********************************************************************//**
@@ -760,6 +885,7 @@
 +  if (is_attack && vi >= 0 && vi < MAX_NUM_PLAYERS
 +      && wi >= 0 && wi < MAX_NUM_PLAYERS) {
 +    dof_source_until[vi][wi] = game.info.turn + DOF_SOURCE_HORIZON;
++    dof_known_source_turn = -1; /* knowledge changed inside the turn */
 +  }
 +
 +  /* Unconditional record: without it a "peaceful" run cannot be told apart
@@ -841,23 +967,28 @@
 +{
 +  return dof_policy.spec;
 +}
---- a/ai/default/dofpolicy.h	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/default/dofpolicy.h	1970-01-01 01:00:00.000000000 +0100
-@@ -0,0 +1,83 @@
+--- a/ai/default/dofpolicy.h
++++ b/ai/default/dofpolicy.h
+@@ -0,0 +1,96 @@
 +/***********************************************************************
-+ DOF-Core policy layer for the built-in freeciv AI (contact with strangers); see DOF-AGENT.md
++ DOF-Core policy layer for the built-in freeciv AI (contact with strangers).
 +
-+ Stage M0: knowledge ledger + journal + per-seat policy switch. DOF-Core: https://github.com/UncleAndy/dof-core
-+ No decision behaviour is changed in this stage: the classic branch stays
-+ byte-identical when the policy is "none" (the control arm of an A/B).
++ Principle: DOF-Core, https://github.com/UncleAndy/dof-core
++ Description of every engine change: DOF-AGENT.md / drafts/DOF_ENGINE_CHANGES.md
++
++ The classic branch stays byte-identical when the policy is "none" (the
++ control arm of an A/B): every gate below is a no-op for a classic seat.
 +
 + Doctrine (single source, must match .hermes.md of DOF-MODEL-CIV):
 +  * a peaceful foreign player ADDS to the common DoF, it is not a threat;
 +  * a player becomes a collapse source only by an OBSERVED first attack on a
 +    city or a unit of ANY player (not only ours);
++  * SOLIDARITY: an agent that knows both sides (it has met the attacker and
++    the victim) acts against the attacker even when it was not the victim;
 +  * the defender of that event is never marked;
 +  * the flag holds for DOF_SOURCE_HORIZON turns;
-+  * unknown is not zero: an unmet player is UNKNOWN, not hostile.
++  * unknown is not zero: an unmet player is UNKNOWN, not hostile, and an
++    attack whose victim the agent has never met is not a judgement it can make.
 +
 + This program is free software; you can redistribute it and/or modify
 + it under the terms of the GNU General Public License as published by
@@ -887,9 +1018,17 @@
 +/* Is the DOF policy active for this player (seat)? */
 +bool dof_enabled(const struct player *pplayer);
 +
-+/* Is "other" a collapse source from the point of view of "pplayer"? */
++/* Is "other" a collapse source from the point of view of "pplayer"?
++ * A source is a player observed attacking somebody "pplayer" knows and has
++ * met itself, so self-defence and solidarity are the same judgement. */
 +bool dof_is_source(const struct player *pplayer,
 +                   const struct player *other);
++
++/* Is "other" a source for "pplayer" because of an attack on a THIRD party
++ * (not on "pplayer")? Separates a war of solidarity from self-defence in the
++ * journal. */
++bool dof_source_is_third_party(const struct player *pplayer,
++                               const struct player *other);
 +
 +/* Journal: first contact with a stranger. */
 +void dof_journal_contact(struct player *pplayer, struct player *other);
@@ -927,40 +1066,27 @@
 +#endif /* __cplusplus */
 +
 +#endif /* FC__DOFPOLICY_H */
---- a/ai/classic/classicai.c	2026-10-25 06:14:35.693491021 +0100
-+++ b/ai/classic/classicai.c	2026-10-25 06:14:35.694187121 +0100
-@@ -37,6 +37,8 @@
- #include "daitools.h"
- #include "daiunit.h"
+--- a/meson.build
++++ b/meson.build
+@@ -990,7 +990,7 @@
  
-+#include "dofpolicy.h"
-+
- #include "classicai.h"
+ server_inc = [common_inc, include_directories('server', 'server/advisors',
+               'server/scripting', 'server/generator', 'server/savegame',
+-              'ai', 'ai/classic')]
++              'ai', 'ai/classic', 'ai/default')]
  
- /* This function is only needed as symbol in module. Nevertheless
-@@ -163,6 +165,11 @@
- **************************************************************************/
- static void cai_data_phase_begin(struct player *pplayer, bool is_new_phase)
- {
-+  /* DOF: политика перечитывается в начале хода каждого места, поэтому файл
-+   * /docker/freeciv/dof_policy.conf можно менять на ходу — следующий ход уже
-+   * пойдёт по новой руке, без перезапуска стенда. Внутри reload стоит кэш по
-+   * номеру хода, так что stat() делается один раз за ход. */
-+  dof_policy_reload();
-   struct ai_type *deftype = classic_ai_get_self();
- 
-   dai_data_phase_begin(deftype, pplayer, is_new_phase);
-@@ -702,6 +709,8 @@
-   ai->funcs.treaty_evaluate = cai_treaty_evaluate;
-   ai->funcs.treaty_accepted = cai_treaty_accepted;
-   ai->funcs.first_contact = cai_diplomacy_first_contact;
-+  /* DOF: per-seat console ("/aicmd <player> dof on|off|status"). */
-+  ai->funcs.player_console = dof_player_console;
-   ai->funcs.incident = cai_incident;
- 
-   ai->funcs.log_fragment_city = cai_city_log;
---- a/server/aiiface.c	2026-10-25 06:14:35.689556062 +0100
-+++ b/server/aiiface.c	2026-10-25 06:14:35.690285790 +0100
+ client_inc = [common_inc, include_directories('client', 'client/include',
+               'client/luascript', 'client/agents')]
+@@ -1310,6 +1310,7 @@
+   'ai/default/daitech.c',
+   'ai/default/daitools.c',
+   'ai/default/daiunit.c',
++  'ai/default/dofpolicy.c',
+   sources: [verhdr],
+   include_directories: [server_inc, include_directories('ai/default')]
+   )
+--- a/server/aiiface.c
++++ b/server/aiiface.c
 @@ -30,6 +30,9 @@
  /* ai/classic */
  #include "classicai.h"
@@ -982,8 +1108,8 @@
    if (scope == CBR_VICTIM_ONLY) {
      CALL_PLR_AI_FUNC(incident, victim,
                       type, scope, paction, victim, violator, victim);
---- a/server/srv_main.c	2026-10-25 06:14:35.697092105 +0100
-+++ b/server/srv_main.c	2026-10-25 06:14:35.697793687 +0100
+--- a/server/srv_main.c
++++ b/server/srv_main.c
 @@ -2303,8 +2303,25 @@
      }
    } players_iterate_alive_end;

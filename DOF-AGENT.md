@@ -19,6 +19,7 @@ DOF-MODEL-CIV project.
 | who may be attacked | anyone who looks weak | only a *source of aggression* — a player observed attacking a city or a unit |
 | espionage as an attack | bribes cities, sabotages, steals tech, poisons, delivers a nuclear strike by spy | refused unless the target is a source of aggression; embassies and peaceful presence stay free |
 | response to an attack | ordinary war planning by expected profit | war of response: the offender is attacked without a profit calculation |
+| solidarity | a war next door is somebody else's business | a seat that knows both sides (it has met the attacker and the victim) treats the attacker as a source even when it was not the victim, and joins against it |
 | ending a war | tie when profitable | a ceasefire is offered once the source flag expires ("We have no quarrel left with you") |
 
 A stranger is not a target: an unmet player is *unknown*, not hostile. Unknown
@@ -29,7 +30,7 @@ of options.
 
 | file | role |
 |---|---|
-| `ai/default/dofpolicy.c`, `.h` | ledger of aggression sources, rule journal, per-seat policy switch, counters |
+| `ai/default/dofpolicy.c`, `.h` | ledger of aggression sources, solidarity view (who attacked somebody this seat knows), rule journal, per-seat policy switch, counters |
 | `ai/default/daidiplomacy.c` | war desire, declaration guard, war of response, ceasefire offer |
 | `ai/default/daiactions.c` | refusal of coercion (bribery, sabotage, tech theft, poison, spy nuke) |
 | `ai/default/daiunit.h` | a stranger is not a `POTENTIALLY_HOSTILE_PLAYER` |
@@ -71,12 +72,17 @@ The agent writes its decisions to the server output, one line per event:
 [DOF] contact turn=6 me=Pakal other=Burnaburish II status=MET
 [DOF] declare turn=58 declarer=... target=... declarer_dof=1 reason=3
 [DOF] news turn=61 violator=... victim=... violator_dof=1 victim_dof=0
-[DOF] blocked turn=64 me=... other=... rule=coercion_refused
+[DOF] rule turn=142 me=... other=... what=war_on_source_third
+[DOF] rule turn=148 me=... other=... what=ceasefire_offer
+[DOF] rule turn=151 me=... other=... what=coercion_refused
+[DOF] blocked turn=64 me=... other=... what=declare_war
 ```
 
-The same lines are duplicated to stderr, because the `--log` file is not always
-written in this container layout. Counters of the run: refused coercion, peace
-offers, wars started on an observed attack, suppressed war-desire pairs.
+`war_on_source` marks a war of self-defence, `war_on_source_third` a war of
+solidarity. The same lines are duplicated to stderr, because the `--log` file is
+not always written in this container layout. Counters of the run: refused
+coercion, peace offers, wars started on an observed attack, suppressed
+war-desire pairs.
 
 ## Building
 
@@ -107,3 +113,18 @@ Headless tournament series, 8 AI seats, 200 turns, same seeds per arm
 
 The DOF seats neither start wars nor coerce anyone; the resources that classic
 seats spend on wars go into growth and science instead.
+
+Solidarity series (6 games per arm, 200 turns, size 3, same seeds), mixed arm
+split by seat:
+
+| seats | war declarations | of them unfounded | score | science, bulbs/turn |
+|---|---|---|---|---|
+| DOF seats, mixed game | 12 | 0 | 175.8 | 156 |
+| classic seats, same games | 49 | 41 (84%) | 157.5 | 98 |
+| classic control | 138 | 130 (94%) | 172.1 | 144 |
+
+All 12 DOF declarations came after an attack by the target and all 12 were
+journaled as `war_on_source_third`: these are wars for third parties. The
+control arm reproduced the earlier series exactly, so the solidarity change
+does not touch a classic seat. Price of solidarity: about 12% of the science
+(177 → 156 bulbs) at an unchanged score.
