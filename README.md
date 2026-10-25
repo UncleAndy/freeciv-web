@@ -10,6 +10,12 @@ Freeciv-web is free and open source software. The Freeciv C server is released u
 under the GNU Affero General Public License. See [License](LICENSE.txt) for the full license document.
 
 
+DOF version of the built-in AI
+------------------------------
+
+This fork runs the built-in AI by the DOF principle (degrees of freedom): no unprovoked war, no coercion against strangers, war only against an observed source of aggression, and a peace offer once the response is over. The agent itself, the policy switch (`/docker/freeciv/dof_policy.conf`) and the measured effect are described in [DOF-AGENT.md](DOF-AGENT.md); the principle is [DOF-Core](https://github.com/UncleAndy/dof-core).
+
+
 Live servers
 ------------
 Currently known servers based on Freeciv-web, which are open source in compliance with [the AGPL license](https://github.com/freeciv/freeciv-web/blob/develop/LICENSE.txt):

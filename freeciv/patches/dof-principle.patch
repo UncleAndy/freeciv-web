@@ -267,9 +267,9 @@
 +++ b/ai/default/dofpolicy.c	1970-01-01 01:00:00.000000000 +0100
 @@ -0,0 +1,575 @@
 +/***********************************************************************
-+ DOF-Core policy layer for the built-in freeciv AI (contact with strangers).
++ DOF-Core policy layer for the built-in freeciv AI (contact with strangers); see DOF-AGENT.md
 +
-+ Stage M0: knowledge ledger + journal + per-seat policy switch.
++ Stage M0: knowledge ledger + journal + per-seat policy switch. DOF-Core: https://github.com/UncleAndy/dof-core
 + Decision behaviour is NOT changed in this stage.
 +
 + Policy switch is a file, read (and re-read on change) by the running server:
@@ -845,9 +845,9 @@
 +++ b/ai/default/dofpolicy.h	1970-01-01 01:00:00.000000000 +0100
 @@ -0,0 +1,83 @@
 +/***********************************************************************
-+ DOF-Core policy layer for the built-in freeciv AI (contact with strangers).
++ DOF-Core policy layer for the built-in freeciv AI (contact with strangers); see DOF-AGENT.md
 +
-+ Stage M0: knowledge ledger + journal + per-seat policy switch.
++ Stage M0: knowledge ledger + journal + per-seat policy switch. DOF-Core: https://github.com/UncleAndy/dof-core
 + No decision behaviour is changed in this stage: the classic branch stays
 + byte-identical when the policy is "none" (the control arm of an A/B).
 +

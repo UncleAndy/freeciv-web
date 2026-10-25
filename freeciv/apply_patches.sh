@@ -24,6 +24,11 @@
 # longturn implements a very basic longturn mode for Freeciv-web.
 # load_command_confirmation adds a log message which confirms that loading is complete, so that Freeciv-web can issue additional commands.
 # endgame-mapimg is used to generate a mapimg at endgame for hall of fame.
+# dof-principle runs the built-in AI by the DOF principle (DOF-Core,
+# https://github.com/UncleAndy/dof-core): a player becomes a target only by an
+# observed attack, war without a reason and coercion against strangers are
+# refused, the war of response ends with a peace offer. The agent, its policy
+# switch and the measurements are described in DOF-AGENT.md.
 
 # Local patches
 # -------------

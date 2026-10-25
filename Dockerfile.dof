@@ -1,4 +1,6 @@
 # Image of the freeciv engine with the DOF principle in the built-in AI.
+# Principle: DOF-Core, https://github.com/UncleAndy/dof-core
+# The agent itself (rules, policy switch, journal, measurements): DOF-AGENT.md.
 #
 # The full build of this repository (Dockerfile) compiles freeciv from the
 # source fetched at build time and applies freeciv/patches/*.patch, including
