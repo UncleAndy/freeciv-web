@@ -1,0 +1,43 @@
+# Image of the freeciv engine with the DOF principle in the built-in AI.
+#
+# The full build of this repository (Dockerfile) compiles freeciv from the
+# source fetched at build time and applies freeciv/patches/*.patch, including
+# dof-principle.patch. This file is the short path: it takes the already built
+# image and recompiles the engine with the same patch applied, so the image can
+# be produced in minutes instead of a full rebuild.
+#
+#   docker build -f Dockerfile.dof -t civrealm/freeciv-web:1.5 .
+#
+# What the patch adds to the built-in AI (ai/default, ai/classic):
+#   * a source ledger: a player becomes an allowed target only after it attacked
+#     us ("dof_is_source");
+#   * no initiative war: war desire is zeroed, the plunder war and the "no
+#     mercy" self-targeting are removed, war for an ally or to stop a spaceship
+#     is refused;
+#   * no coercion without a source: city bribery, sabotage, tech theft, poison
+#     and a spy-delivered nuclear strike are refused (daiactions.c);
+#   * war of response: the offender is attacked without a profit calculation,
+#     and a ceasefire is offered once the source flag expires;
+#   * a per-turn journal to stderr and counters, plus the /aicmd dof on|off|status
+#     console command and the policy file /docker/freeciv/dof_policy.conf.
+
+FROM civrealm/freeciv-web:1.4
+
+COPY freeciv/patches/dof-principle.patch /tmp/dof-principle.patch
+COPY freeciv/dof_policy.conf /docker/freeciv/dof_policy.conf
+
+USER docker
+WORKDIR /docker/freeciv/freeciv
+
+# The tree of the base image is pristine, so the patch applies as is; the build
+# directory of the base image is reused, which makes the compile incremental.
+RUN patch -p1 -f -i /tmp/dof-principle.patch && \
+    test -f ai/default/dofpolicy.c && \
+    cd ../build && \
+    ninja freeciv-web && \
+    cp freeciv-web /tmp/freeciv-web.new && \
+    chmod 755 /tmp/freeciv-web.new && \
+    mv -f /tmp/freeciv-web.new /home/docker/freeciv/bin/freeciv-web
+
+# Keep the compiled objects and the binary owned by the runtime user.
+USER docker

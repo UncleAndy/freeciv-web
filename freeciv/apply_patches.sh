@@ -53,6 +53,7 @@ declare -a PATCHLIST=(
   "webgl_vision_cheat_temporary"
   "endgame-mapimg"
   "stdsounds_format"
+  "dof-principle"
   $(ls -1 patches/local/*.patch 2>/dev/null | sed -e 's,patches/,,' -e 's,\.patch,,' | sort)
 )
 
