@@ -313,8 +313,8 @@ diff -ruN a/ai/default/daiunit.h b/ai/default/daiunit.h
     + ut->upkeep[O_SHIELD] + ut->upkeep[O_FOOD] + ut->upkeep[O_GOLD])
 diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 --- a/ai/default/dofpolicy.c	1970-01-01 01:00:00.000000000 +0100
-+++ b/ai/default/dofpolicy.c	2026-10-25 08:10:45.853369753 +0100
-@@ -0,0 +1,1037 @@
++++ b/ai/default/dofpolicy.c	2026-10-25 09:38:40.980292391 +0100
+@@ -0,0 +1,1066 @@
 +/***********************************************************************
 + DOF-Core policy layer for the built-in freeciv AI (contact with strangers).
 +
@@ -433,6 +433,7 @@ diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 + * and acts against the aggressor (solidarity). */
 +static struct dof_incident dof_live[DOF_MAX_INCIDENTS];
 +static int dof_live_count = -1;
++static int dof_live_turn = -1;   /* ход, на который построен срез */
 +static bool dof_known_source[MAX_NUM_PLAYERS][MAX_NUM_PLAYERS];
 +
 +/**********************************************************************//**
@@ -574,6 +575,7 @@ diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 +    dof_pair_init = FALSE;
 +    dof_incident_next = 0;
 +    dof_live_count = -1;
++    dof_live_turn = -1;
 +    dof_acting_unit_id = 0;
 +    dof_policy.loaded = FALSE;
 +    dof_checked_turn = -1;
@@ -596,6 +598,7 @@ diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 +    memset(dof_live, 0, sizeof(dof_live));
 +    dof_incident_next = 0;
 +    dof_live_count = -1;
++    dof_live_turn = -1;
 +    dof_ledger_reset = TRUE;
 +  }
 +
@@ -741,9 +744,13 @@ diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 +{
 +  int i;
 +
-+  if (dof_live_count >= 0) {
++  /* The snapshot is valid for one turn only: a marked unit can die without
++   * producing any new incident, and a source must vanish with its unit. */
++  if (dof_live_count >= 0 && dof_live_turn == game.info.turn) {
 +    return;
 +  }
++
++  dof_live_turn = game.info.turn;
 +
 +  dof_live_count = 0;
 +  memset(dof_known_source, 0, sizeof(dof_known_source));
@@ -800,7 +807,7 @@ diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 +bool dof_is_source(const struct player *pplayer,
 +                   const struct player *other)
 +{
-+  int me, him;
++  int i, me, him;
 +
 +  if (pplayer == NULL || other == NULL || pplayer == other) {
 +    return FALSE;
@@ -815,7 +822,29 @@ diff -ruN a/ai/default/dofpolicy.c b/ai/default/dofpolicy.c
 +
 +  dof_live_refresh();
 +
-+  return dof_known_source[me][him];
++  if (!dof_known_source[me][him]) {
++    return FALSE;
++  }
++
++  /* The snapshot is built once per turn; a marked unit may already be dead.
++   * The collapse source is the unit, so verify against the map right now. */
++  for (i = 0; i < DOF_MAX_INCIDENTS; i++) {
++    const struct dof_incident *inc = &dof_incidents[i];
++    const struct player *victim;
++
++    if (!inc->used || inc->owner != him) {
++      continue;
++    }
++    if (!dof_incident_live(inc)) {
++      continue;
++    }
++    victim = player_by_number(inc->victim);
++    if (victim != NULL && !dof_never_met(pplayer, victim)) {
++      return TRUE;
++    }
++  }
++
++  return FALSE;
 +}
 +
 +/**********************************************************************//**

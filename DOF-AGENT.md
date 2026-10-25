@@ -22,6 +22,10 @@ DOF-MODEL-CIV project.
 | solidarity | a war next door is somebody else's business | the source is the **unit**, not the nation: a unit observed attacking somebody the seat knows (or the seat itself) is marked, the mark dies with the unit, and marked units are hunted first. The seat joins against the owner of a marked unit even when it was not the victim |
 | ending a war | tie when profitable | a ceasefire is offered once the marked units are gone ("We have no quarrel left with you") |
 
+The live view of the marks is rebuilt every turn, and every query re-checks the
+marked units on the map: a mark disappears with its unit, not with the next
+incident.
+
 A stranger is not a target: an unmet player is *unknown*, not hostile. Unknown
 is not zero — the agent does not treat the absence of information as the absence
 of options.
@@ -34,7 +38,7 @@ of options.
 | `ai/default/daidiplomacy.c` | war desire, declaration guard, war of response, ceasefire offer |
 | `ai/default/daiactions.c` | refusal of coercion (bribery, sabotage, tech theft, poison, spy nuke) |
 | `ai/default/daiunit.h` | a stranger is not a `POTENTIALLY_HOSTILE_PLAYER` |
-| `ai/default/daiunit.c` | marked source units are hunted first (`dai_rampage_want`) |
+| `ai/default/daiunit.c` | marked source units are hunted first (`dai_rampage_want`, desire x3) |
 | `server/unithand.c` | the acting unit is named, and an attack inside an ongoing war is written to the ledger (it carries no casus belli) |
 | `ai/default/daisettler.c` | NULL-guard in `find_best_city_placement` (a crash on long headless games) |
 | `ai/classic/classicai.c` | `/aicmd <player> dof on\|off\|status` console command |
